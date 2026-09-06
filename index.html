@@ -209,6 +209,9 @@
   .variant-row-top{display:flex; align-items:center; gap:10px;}
   .variant-row-top select{flex:1; min-width:0;}
   .variant-row-top .remove-btn{flex-shrink:0;}
+  .variant-row-custom{display:flex; align-items:center; gap:8px;}
+  .variant-row-custom input[type="color"]{width:38px; height:38px; padding:0; border:1px solid var(--line); border-radius:8px; flex-shrink:0; background:none;}
+  .variant-row-custom input[type="text"]{flex:1; min-width:0;}
   .variant-row-bottom{display:flex; align-items:center; gap:10px;}
   .variant-thumb{
     width:44px; height:44px; border-radius:8px; object-fit:cover; background:var(--rose);
@@ -774,6 +777,10 @@ function getVariantImage(p, colorName){
   const v = p.colorVariants.find(x=>x.color===colorName);
   return (v && v.image) ? v.image : p.image;
 }
+function getVariantHex(p, colorName){
+  const v = p.colorVariants && p.colorVariants.find(x=>x.color===colorName);
+  return (v && v.hex) || COLOR_HEX[colorName] || '#ccc';
+}
 function renderGrid(){
   const grid = document.getElementById('productGrid');
   const list = activeCategory==="Todos" ? products : products.filter(p=>p.category===activeCategory);
@@ -794,7 +801,7 @@ function renderGrid(){
         <p>${p.desc}</p>
         ${hasColors ? `
           <div class="color-swatches">
-            ${p.colorVariants.map(v=>`<button type="button" class="color-dot ${v.color===activeColor?'active':''}" style="background:${COLOR_HEX[v.color]||'#ccc'}" title="${v.color}" onclick="pickColor('${p.id}','${v.color}')"></button>`).join("")}
+            ${p.colorVariants.map(v=>`<button type="button" class="color-dot ${v.color===activeColor?'active':''}" style="background:${v.hex||COLOR_HEX[v.color]||'#ccc'}" title="${v.color}" onclick="pickColor('${p.id}','${v.color}')"></button>`).join("")}
           </div>
           <div class="selected-color-label">Cor escolhida: ${activeColor}</div>
         ` : ''}
@@ -868,7 +875,7 @@ function renderCartDrawer(){
       <div class="cart-thumb" style="background:${i.color}">${thumbImg?`<img src="${thumbImg}">`:''}</div>
       <div class="cart-info">
         <h4>${i.name}</h4>
-        ${i.pickedColor ? `<div class="cart-color-tag"><span class="dot" style="background:${COLOR_HEX[i.pickedColor]||'#ccc'}"></span>${i.pickedColor}</div>` : ''}
+        ${i.pickedColor ? `<div class="cart-color-tag"><span class="dot" style="background:${getVariantHex(i, i.pickedColor)}"></span>${i.pickedColor}</div>` : ''}
         <div class="cprice">${brl(i.price)}</div>
         <div class="qty-row">
           <button class="qty-btn" onclick="changeQty('${i.key}',-1)">−</button>
@@ -1127,7 +1134,11 @@ function renderVariantsBox(){
         </select>
         <button type="button" class="link-btn remove-btn" onclick="removeVariantRow(${idx})">remover</button>
       </div>
-      ${isCustom ? `<input type="text" placeholder="Digite o nome da cor" value="${v.color||''}" oninput="setVariantColor(${idx}, this.value)" style="width:100%;">` : ''}
+      ${isCustom ? `
+      <div class="variant-row-custom">
+        <input type="color" value="${v.hex||'#CCCCCC'}" oninput="setVariantHex(${idx}, this.value)" title="Escolha a cor exata">
+        <input type="text" placeholder="Digite o nome da cor" value="${v.color||''}" oninput="setVariantColor(${idx}, this.value)">
+      </div>` : ''}
       <div class="variant-row-bottom">
         <div class="variant-thumb">${v.image?`<img src="${v.image}">`:''}</div>
         <label class="file-btn" style="width:auto;">📷 ${v.image?'trocar foto':'adicionar foto'}<input type="file" accept="image/*" style="display:none;" onchange="setVariantImage(${idx}, this.files[0])"></label>
@@ -1143,10 +1154,14 @@ function addVariantRow(){
 }
 function setVariantColorSelect(idx, value){
   editingVariants[idx].color = (value === '__custom__') ? '' : value;
+  if(value === '__custom__' && !editingVariants[idx].hex) editingVariants[idx].hex = '#CCCCCC';
   renderVariantsBox();
 }
 function setVariantColor(idx, color){
   editingVariants[idx].color = color;
+}
+function setVariantHex(idx, hex){
+  editingVariants[idx].hex = hex;
 }
 function setVariantImage(idx, file){
   if(!file) return;
