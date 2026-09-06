@@ -6,6 +6,8 @@
 <title>Maninha Crochê</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Playfair+Display:ital@0;1&family=Quicksand:wght@400;500;600&family=Poppins:wght@300;400;500;600&family=Yesteryear&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
 <style>
   :root{
     --cream:#FFF7F4;
@@ -577,25 +579,41 @@ let editingId = null;
 let editingImage = null;
 let heroImageDraft = null;
 
-/* ================= STORAGE ================= */
+/* ================= STORAGE (Firebase Firestore) ================= */
+const firebaseConfig = {
+  apiKey: "AIzaSyCvJ6ZKfMmnsIeJZauSnuQfxPx_RMpc0zs",
+  authDomain: "teste-funcionarios.firebaseapp.com",
+  projectId: "teste-funcionarios",
+  storageBucket: "teste-funcionarios.firebasestorage.app",
+  messagingSenderId: "873793027226",
+  appId: "1:873793027226:web:42782675e873455395f323",
+  measurementId: "G-0E5W84SLCE"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+// Coleção própria para não misturar com outros apps do mesmo projeto Firebase
+const siteCol = db.collection('maninhaCroche');
+
 async function loadData(){
   try{
-    const p = await window.storage.get('products', true);
-    products = p ? JSON.parse(p.value) : DEFAULT_PRODUCTS;
-  }catch(e){ products = DEFAULT_PRODUCTS; }
+    const doc = await siteCol.doc('products').get();
+    products = doc.exists ? doc.data().list : DEFAULT_PRODUCTS;
+  }catch(e){ console.error(e); products = DEFAULT_PRODUCTS; }
   try{
-    const s = await window.storage.get('settings', true);
-    settings = s ? {...JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), ...JSON.parse(s.value)} : JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
-  }catch(e){ settings = JSON.parse(JSON.stringify(DEFAULT_SETTINGS)); }
+    const doc = await siteCol.doc('settings').get();
+    settings = doc.exists ? {...JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), ...doc.data()} : JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
+  }catch(e){ console.error(e); settings = JSON.parse(JSON.stringify(DEFAULT_SETTINGS)); }
   applySettings();
   renderHeroArt();
   renderAll();
 }
 async function saveProducts(){
-  try{ await window.storage.set('products', JSON.stringify(products), true); }catch(e){ showToast("Não deu pra salvar. Verifique a internet."); }
+  try{ await siteCol.doc('products').set({ list: products }); }
+  catch(e){ console.error(e); showToast("Não deu pra salvar. Verifique a internet."); }
 }
 async function saveSettings(){
-  try{ await window.storage.set('settings', JSON.stringify(settings), true); }catch(e){ showToast("Não deu pra salvar. Verifique a internet."); }
+  try{ await siteCol.doc('settings').set(settings); }
+  catch(e){ console.error(e); showToast("Não deu pra salvar. Verifique a internet."); }
 }
 
 /* ================= HELPERS ================= */
