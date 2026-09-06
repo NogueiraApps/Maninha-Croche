@@ -5,10 +5,10 @@
 // (index.html e admin.html) no mesmo repositório do GitHub Pages.
 // ============================================================
 window.MC_FIREBASE_CONFIG = {
-  apiKey: "COLE_AQUI",
-  authDomain: "COLE_AQUI",
-  projectId: "COLE_AQUI",
-  storageBucket: "COLE_AQUI",
-  messagingSenderId: "COLE_AQUI",
-  appId: "COLE_AQUI"
+  apiKey: "AIzaSyCvJ6ZKfMmnsIeJZauSnuQfxPx_RMpc0zs",
+  authDomain: "teste-funcionarios.firebaseapp.com",
+  projectId: "teste-funcionarios",
+  storageBucket: "teste-funcionarios.firebasestorage.app",
+  messagingSenderId: "873793027226",
+  appId: "1:873793027226:web:7371d8536e77219195f323"
 };
