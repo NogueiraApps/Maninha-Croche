@@ -187,6 +187,33 @@
   .card-body h3{font-size:21px; font-style:italic;}
   .card-body p{font-size:13px; color:var(--mauve); line-height:1.5; min-height:36px;}
   .price-row{display:flex; align-items:baseline; gap:8px; margin-top:4px;}
+  .color-swatches{display:flex; gap:7px; flex-wrap:wrap; margin-top:6px;}
+  .color-dot{
+    width:22px; height:22px; border-radius:50%; border:2px solid #fff;
+    box-shadow:0 0 0 1px var(--line); cursor:pointer; padding:0; position:relative; flex-shrink:0;
+  }
+  .color-dot.active{box-shadow:0 0 0 2px var(--neon);}
+  .color-dot.active::after{
+    content:"✓"; position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    font-size:11px; color:#fff; text-shadow:0 0 2px rgba(0,0,0,.6);
+  }
+  .selected-color-label{font-size:12px; color:var(--mauve); margin-top:2px;}
+  .cart-color-tag{
+    display:inline-flex; align-items:center; gap:5px; font-size:12px; color:var(--mauve); margin-top:2px;
+  }
+  .cart-color-tag .dot{width:12px; height:12px; border-radius:50%; display:inline-block; box-shadow:0 0 0 1px var(--line);}
+  .variant-row{
+    display:flex; align-items:center; gap:10px; padding:10px; margin-bottom:8px;
+    border:1px solid var(--line); border-radius:12px; background:#fff;
+  }
+  .variant-row select{flex-shrink:0; width:110px;}
+  .variant-thumb{
+    width:44px; height:44px; border-radius:8px; object-fit:cover; background:var(--rose);
+    flex-shrink:0; display:flex; align-items:center; justify-content:center; overflow:hidden;
+  }
+  .variant-thumb img{width:100%; height:100%; object-fit:cover;}
+  .variant-row .file-btn{font-size:12px; padding:6px 10px; flex-shrink:0;}
+  .variant-row .remove-btn{margin-left:auto;}
   .price{font-size:20px; color:var(--neon); font-family:var(--font-heading); font-weight:600;}
   .price-old{font-size:13px; color:var(--mauve); text-decoration:line-through;}
   .add-btn{
@@ -442,6 +469,7 @@
         <div class="color-row"><span>Cor principal (rosa neon)</span><input type="color" id="colorNeon"></div>
         <div class="color-row"><span>Cor de fundo do site</span><input type="color" id="colorCream"></div>
         <div class="color-row"><span>Cor dos títulos</span><input type="color" id="colorPlum"></div>
+        <div class="color-row"><span>Cor da flor</span><input type="color" id="colorFlower"></div>
         <div class="field"><label>Estilo de letra</label>
           <select id="fontStyleSelect">
             <option value="elegante">Elegante clássico</option>
@@ -518,6 +546,11 @@
           <option value="promo">Promoção</option>
         </select>
       </div>
+      <div class="field">
+        <label>Cores e fotos (o cliente clica na cor e vê a foto correspondente)</label>
+        <div id="editVariantsBox"></div>
+        <button type="button" class="link-btn" id="addVariantBtn" style="margin-top:6px;">+ adicionar cor</button>
+      </div>
       <div class="modal-actions">
         <button class="btn-primary" id="saveProductBtn">Salvar</button>
         <button class="link-btn" id="deleteProductBtn" style="color:#B23A3A;">excluir produto</button>
@@ -534,6 +567,11 @@
 const WHATSAPP_NUMBER = "558881355362";
 const HOME_CITY = "porteiras";
 const FREIGHT_OUT = 10;
+
+const COLOR_HEX = {
+  "Cinza":"#9E9E9E", "Vermelho":"#C0392B", "Preto":"#1A1A1A", "Marrom":"#6F4E37",
+  "Verde":"#4C7A4C", "Bege":"#E8D8C3", "Rosa":"#F48FB1", "Amarelo":"#F5C518"
+};
 
 const FONT_PRESETS = {
   elegante:{heading:"'Cormorant Garamond', serif", body:"'Poppins', sans-serif"},
@@ -554,7 +592,7 @@ const DEFAULT_PRODUCTS = [
 const DEFAULT_SETTINGS = {
   ticker: "✨ Novidade: Coelhinha Amigurumi chegou! · Promoção: Bolsa de Praia com desconto · Entrega grátis em Porteiras 🌸",
   adminPass: "croche123",
-  colors: {neon:"#FF2E93", cream:"#FFF7F4", plum:"#3A1F2B"},
+  colors: {neon:"#FF2E93", cream:"#FFF7F4", plum:"#3A1F2B", flower:"#FF2E93"},
   fontStyle: "elegante",
   hero: {
     tag:"feito ponto a ponto, com amor",
@@ -578,6 +616,8 @@ let selectedPayment = null;
 let editingId = null;
 let editingImage = null;
 let heroImageDraft = null;
+let selectedColors = {}; // {productId: "Rosa"} - cor escolhida pelo cliente na loja
+let editingVariants = []; // [{color, image}] cores + fotos em edição no admin
 
 /* ================= STORAGE (Firebase Firestore) ================= */
 const firebaseConfig = {
@@ -601,7 +641,9 @@ async function loadData(){
   }catch(e){ console.error(e); products = DEFAULT_PRODUCTS; }
   try{
     const doc = await siteCol.doc('settings').get();
-    settings = doc.exists ? {...JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), ...doc.data()} : JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
+    const base = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
+    const saved = doc.exists ? doc.data() : {};
+    settings = {...base, ...saved, colors:{...base.colors, ...(saved.colors||{})}, hero:{...base.hero, ...(saved.hero||{})}, about:{...base.about, ...(saved.about||{})}};
   }catch(e){ console.error(e); settings = JSON.parse(JSON.stringify(DEFAULT_SETTINGS)); }
   applySettings();
   renderHeroArt();
@@ -688,14 +730,10 @@ function renderAll(){
 }
 function renderHeroArt(){
   const el = document.getElementById('heroArt');
-  const rings = `<svg class="rings" width="300" height="300" viewBox="0 0 300 300">
-      <circle cx="150" cy="150" r="140" fill="none" stroke="#F7CFE0" stroke-width="2"/>
-      <circle cx="150" cy="150" r="112" fill="none" stroke="#FFD9EC" stroke-width="2" stroke-dasharray="4 6"/>
-    </svg>`;
   const inner = settings.heroImage
-    ? `<img src="${settings.heroImage}" class="hero-img" alt="Maninha Crochê">`
-    : `<div class="hero-flower-wrap">${flowerSVG(settings.colors.neon)}</div>`;
-  el.innerHTML = `<div class="hero-circle-wrap">${rings}${inner}</div>`;
+    ? `<div class="hero-circle-wrap"><img src="${settings.heroImage}" class="hero-img" alt="Maninha Crochê"></div>`
+    : `<div class="hero-flower-wrap">${flowerSVG(settings.colors.flower)}</div>`;
+  el.innerHTML = inner;
 }
 function renderTicker(){
   const track = document.getElementById('tickerTrack');
@@ -709,20 +747,35 @@ function renderTabs(){
     btn.onclick = ()=>{ activeCategory = btn.dataset.cat; renderTabs(); renderGrid(); };
   });
 }
+function getVariantImage(p, colorName){
+  if(!p.colorVariants) return p.image;
+  const v = p.colorVariants.find(x=>x.color===colorName);
+  return (v && v.image) ? v.image : p.image;
+}
 function renderGrid(){
   const grid = document.getElementById('productGrid');
   const list = activeCategory==="Todos" ? products : products.filter(p=>p.category===activeCategory);
   if(list.length===0){ grid.innerHTML = `<p style="text-align:center; color:var(--mauve); grid-column:1/-1;">Nenhum produto nesta categoria ainda.</p>`; return; }
-  grid.innerHTML = list.map(p=>`
+  grid.innerHTML = list.map(p=>{
+    const hasColors = p.colorVariants && p.colorVariants.length>0;
+    const activeColor = hasColors ? (selectedColors[p.id] || p.colorVariants[0].color) : null;
+    const displayImage = hasColors ? getVariantImage(p, activeColor) : p.image;
+    return `
     <div class="card">
       <div class="card-media" style="background:${p.color}">
         ${p.badge==='novidade' ? '<span class="badge">Novidade</span>' : ''}
         ${p.badge==='promo' ? '<span class="badge promo">Promoção</span>' : ''}
-        ${p.image ? `<img src="${p.image}" alt="${p.name}">` : flowerSVG(shade(p.color,-10))}
+        ${displayImage ? `<img src="${displayImage}" alt="${p.name}">` : flowerSVG(shade(p.color,-10))}
       </div>
       <div class="card-body">
         <h3>${p.name}</h3>
         <p>${p.desc}</p>
+        ${hasColors ? `
+          <div class="color-swatches">
+            ${p.colorVariants.map(v=>`<button type="button" class="color-dot ${v.color===activeColor?'active':''}" style="background:${COLOR_HEX[v.color]||'#ccc'}" title="${v.color}" onclick="pickColor('${p.id}','${v.color}')"></button>`).join("")}
+          </div>
+          <div class="selected-color-label">Cor escolhida: ${activeColor}</div>
+        ` : ''}
         <div class="price-row">
           <span class="price">${brl(p.price)}</span>
           ${p.oldPrice ? `<span class="price-old">${brl(p.oldPrice)}</span>` : ''}
@@ -730,38 +783,50 @@ function renderGrid(){
         <button class="add-btn" onclick="addToCart('${p.id}')">Adicionar ao carrinho</button>
       </div>
     </div>
-  `).join("");
+  `;
+  }).join("");
+}
+function pickColor(id, colorName){
+  selectedColors[id] = colorName;
+  renderGrid();
 }
 
 /* ================= CART ================= */
 function addToCart(id){
-  cart[id] = (cart[id]||0)+1;
+  const p = products.find(pp=>pp.id===id);
+  if(!p) return;
+  const hasColors = p.colorVariants && p.colorVariants.length>0;
+  const color = hasColors ? (selectedColors[id] || p.colorVariants[0].color) : null;
+  const key = hasColors ? `${id}::${color}` : id;
+  if(cart[key]){ cart[key].qty += 1; }
+  else{ cart[key] = { id, color, qty:1 }; }
   updateCartCount();
-  showToast("Adicionado ao carrinho 🌸");
+  showToast(hasColors ? `Adicionado (${color}) ao carrinho 🌸` : "Adicionado ao carrinho 🌸");
   renderCartDrawer();
 }
-function changeQty(id, delta){
-  cart[id] = (cart[id]||0)+delta;
-  if(cart[id]<=0) delete cart[id];
+function changeQty(key, delta){
+  if(!cart[key]) return;
+  cart[key].qty += delta;
+  if(cart[key].qty<=0) delete cart[key];
   updateCartCount();
   renderCartDrawer();
 }
-function removeFromCart(id){
-  delete cart[id];
+function removeFromCart(key){
+  delete cart[key];
   updateCartCount();
   renderCartDrawer();
 }
 function cartItemsDetailed(){
-  return Object.entries(cart).map(([id,qty])=>{
-    const p = products.find(pp=>pp.id===id);
-    return p ? {...p, qty} : null;
+  return Object.entries(cart).map(([key,entry])=>{
+    const p = products.find(pp=>pp.id===entry.id);
+    return p ? {...p, key, qty:entry.qty, pickedColor:entry.color} : null;
   }).filter(Boolean);
 }
 function cartSubtotal(){
   return cartItemsDetailed().reduce((sum,i)=>sum+i.price*i.qty,0);
 }
 function updateCartCount(){
-  const count = Object.values(cart).reduce((a,b)=>a+b,0);
+  const count = Object.values(cart).reduce((a,b)=>a+b.qty,0);
   document.getElementById('cartCount').textContent = count;
 }
 function renderCartDrawer(){
@@ -774,21 +839,25 @@ function renderCartDrawer(){
     return;
   }
   foot.style.display = 'block';
-  body.innerHTML = items.map(i=>`
+  body.innerHTML = items.map(i=>{
+    const thumbImg = i.pickedColor ? getVariantImage(i, i.pickedColor) : i.image;
+    return `
     <div class="cart-item">
-      <div class="cart-thumb" style="background:${i.color}">${i.image?`<img src="${i.image}">`:''}</div>
+      <div class="cart-thumb" style="background:${i.color}">${thumbImg?`<img src="${thumbImg}">`:''}</div>
       <div class="cart-info">
         <h4>${i.name}</h4>
+        ${i.pickedColor ? `<div class="cart-color-tag"><span class="dot" style="background:${COLOR_HEX[i.pickedColor]||'#ccc'}"></span>${i.pickedColor}</div>` : ''}
         <div class="cprice">${brl(i.price)}</div>
         <div class="qty-row">
-          <button class="qty-btn" onclick="changeQty('${i.id}',-1)">−</button>
+          <button class="qty-btn" onclick="changeQty('${i.key}',-1)">−</button>
           <span>${i.qty}</span>
-          <button class="qty-btn" onclick="changeQty('${i.id}',1)">+</button>
-          <button class="remove-btn" onclick="removeFromCart('${i.id}')">remover</button>
+          <button class="qty-btn" onclick="changeQty('${i.key}',1)">+</button>
+          <button class="remove-btn" onclick="removeFromCart('${i.key}')">remover</button>
         </div>
       </div>
     </div>
-  `).join("");
+  `;
+  }).join("");
   document.getElementById('subVal').textContent = brl(cartSubtotal());
 }
 
@@ -865,7 +934,7 @@ document.getElementById('sendOrderBtn').onclick = ()=>{
   const items = cartItemsDetailed();
 
   let msg = `Olá! Gostaria de fazer um pedido na Maninha Crochê 🌸\n\n`;
-  msg += items.map(i=>`• ${i.qty}x ${i.name} — ${brl(i.price*i.qty)}`).join("\n");
+  msg += items.map(i=>`• ${i.qty}x ${i.name}${i.pickedColor ? ` (cor: ${i.pickedColor})` : ''} — ${brl(i.price*i.qty)}`).join("\n");
   msg += `\n\nSubtotal: ${brl(sub)}`;
   msg += `\nEntrega: ${freight===0 ? "Grátis (Porteiras)" : brl(freight)}`;
   msg += `\nTotal: ${brl(total)}`;
@@ -921,6 +990,7 @@ function fillAppearanceForm(){
   document.getElementById('colorNeon').value = settings.colors.neon;
   document.getElementById('colorCream').value = settings.colors.cream;
   document.getElementById('colorPlum').value = settings.colors.plum;
+  document.getElementById('colorFlower').value = settings.colors.flower;
   document.getElementById('fontStyleSelect').value = settings.fontStyle;
   heroImageDraft = settings.heroImage || null;
   document.getElementById('heroImgInput').value = '';
@@ -953,6 +1023,7 @@ document.getElementById('saveAppearanceBtn').onclick = ()=>{
   settings.colors.neon = document.getElementById('colorNeon').value;
   settings.colors.cream = document.getElementById('colorCream').value;
   settings.colors.plum = document.getElementById('colorPlum').value;
+  settings.colors.flower = document.getElementById('colorFlower').value;
   settings.fontStyle = document.getElementById('fontStyleSelect').value;
   settings.heroImage = heroImageDraft;
   saveSettings();
@@ -1017,6 +1088,44 @@ document.getElementById('backToListBtn').onclick = ()=>{
   document.getElementById('adminPanelView').style.display='block';
   switchAdminTab('produtos');
 };
+function renderVariantsBox(){
+  const box = document.getElementById('editVariantsBox');
+  if(editingVariants.length===0){
+    box.innerHTML = `<p style="font-size:12px;color:var(--mauve);">Nenhuma cor adicionada ainda.</p>`;
+    return;
+  }
+  box.innerHTML = editingVariants.map((v,idx)=>`
+    <div class="variant-row">
+      <select onchange="setVariantColor(${idx}, this.value)">
+        ${Object.keys(COLOR_HEX).map(c=>`<option value="${c}" ${c===v.color?'selected':''}>${c}</option>`).join("")}
+      </select>
+      <div class="variant-thumb">${v.image?`<img src="${v.image}">`:''}</div>
+      <label class="file-btn" style="width:auto;">📷 foto<input type="file" accept="image/*" style="display:none;" onchange="setVariantImage(${idx}, this.files[0])"></label>
+      <button type="button" class="remove-btn" onclick="removeVariantRow(${idx})">remover</button>
+    </div>
+  `).join("");
+}
+function addVariantRow(){
+  const used = editingVariants.map(v=>v.color);
+  const next = Object.keys(COLOR_HEX).find(c=>!used.includes(c)) || Object.keys(COLOR_HEX)[0];
+  editingVariants.push({color:next, image:null});
+  renderVariantsBox();
+}
+function setVariantColor(idx, color){
+  editingVariants[idx].color = color;
+}
+function setVariantImage(idx, file){
+  if(!file) return;
+  resizeImageFile(file, 640, (dataUrl)=>{
+    editingVariants[idx].image = dataUrl;
+    renderVariantsBox();
+  });
+}
+function removeVariantRow(idx){
+  editingVariants.splice(idx,1);
+  renderVariantsBox();
+}
+document.getElementById('addVariantBtn').onclick = addVariantRow;
 document.getElementById('newProductBtn').onclick = ()=>{
   editingId = null;
   editingImage = null;
@@ -1028,6 +1137,8 @@ document.getElementById('newProductBtn').onclick = ()=>{
   document.getElementById('editCategory').value = "Amigurumis";
   document.getElementById('editColor').value = "#F7CFE0";
   document.getElementById('editBadge').value = "";
+  editingVariants = [];
+  renderVariantsBox();
   document.getElementById('editImgPreview').style.display = 'none';
   document.getElementById('removeImgBtn').style.display = 'none';
   document.getElementById('deleteProductBtn').style.display = 'none';
@@ -1046,6 +1157,8 @@ function editProduct(id){
   document.getElementById('editCategory').value = p.category;
   document.getElementById('editColor').value = p.color;
   document.getElementById('editBadge').value = p.badge || "";
+  editingVariants = (p.colorVariants || []).map(v=>({...v}));
+  renderVariantsBox();
   if(p.image){
     document.getElementById('editImgPreview').src = p.image;
     document.getElementById('editImgPreview').style.display = 'block';
@@ -1098,13 +1211,14 @@ document.getElementById('saveProductBtn').onclick = ()=>{
   const category = document.getElementById('editCategory').value;
   const color = document.getElementById('editColor').value;
   const badge = document.getElementById('editBadge').value;
+  const colorVariants = editingVariants.filter(v=>v.color);
   if(!name || isNaN(price)){ showToast("Preencha nome e preço"); return; }
 
   if(editingId){
     const p = products.find(x=>x.id===editingId);
-    Object.assign(p, {name,desc,price,oldPrice,category,color,badge,image:editingImage});
+    Object.assign(p, {name,desc,price,oldPrice,category,color,badge,colorVariants,image:editingImage});
   }else{
-    products.push({id:"p"+Date.now(), name,desc,price,oldPrice,category,color,badge,image:editingImage});
+    products.push({id:"p"+Date.now(), name,desc,price,oldPrice,category,color,badge,colorVariants,image:editingImage});
   }
   saveProducts();
   document.getElementById('adminEditView').style.display='none';
