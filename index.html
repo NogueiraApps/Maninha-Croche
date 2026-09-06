@@ -631,12 +631,30 @@ const firebaseConfig = {
   appId: "1:873793027226:web:42782675e873455395f323",
   measurementId: "G-0E5W84SLCE"
 };
-firebase.initializeApp(firebaseConfig);
-const db = firebase.firestore();
-// Coleção própria para não misturar com outros apps do mesmo projeto Firebase
-const siteCol = db.collection('maninhaCroche');
+let db = null;
+let siteCol = null;
+let firebaseOk = false;
+try{
+  if(typeof firebase === 'undefined') throw new Error('SDK do Firebase não carregou (sem internet ou bloqueado)');
+  firebase.initializeApp(firebaseConfig);
+  db = firebase.firestore();
+  // Coleção própria para não misturar com outros apps do mesmo projeto Firebase
+  siteCol = db.collection('maninhaCroche');
+  firebaseOk = true;
+}catch(e){
+  console.error('Falha ao iniciar Firebase:', e);
+}
 
 async function loadData(){
+  if(!firebaseOk){
+    products = DEFAULT_PRODUCTS;
+    settings = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
+    applySettings();
+    renderHeroArt();
+    renderAll();
+    showToast("Sem conexão com o banco de dados. Mostrando dados de exemplo.");
+    return;
+  }
   try{
     const doc = await siteCol.doc('products').get();
     products = doc.exists ? doc.data().list : DEFAULT_PRODUCTS;
@@ -652,10 +670,12 @@ async function loadData(){
   renderAll();
 }
 async function saveProducts(){
+  if(!firebaseOk){ showToast("Sem conexão com o banco de dados. Não foi possível salvar."); return; }
   try{ await siteCol.doc('products').set({ list: products }); }
   catch(e){ console.error(e); showToast("Não deu pra salvar. Verifique a internet."); }
 }
 async function saveSettings(){
+  if(!firebaseOk){ showToast("Sem conexão com o banco de dados. Não foi possível salvar."); return; }
   try{ await siteCol.doc('settings').set(settings); }
   catch(e){ console.error(e); showToast("Não deu pra salvar. Verifique a internet."); }
 }
@@ -1096,25 +1116,33 @@ function renderVariantsBox(){
     box.innerHTML = `<p style="font-size:12px;color:var(--mauve);">Nenhuma cor adicionada ainda.</p>`;
     return;
   }
-  box.innerHTML = editingVariants.map((v,idx)=>`
+  box.innerHTML = editingVariants.map((v,idx)=>{
+    const isCustom = !COLOR_HEX.hasOwnProperty(v.color);
+    return `
     <div class="variant-row">
       <div class="variant-row-top">
-        <select onchange="setVariantColor(${idx}, this.value)">
-          ${Object.keys(COLOR_HEX).map(c=>`<option value="${c}" ${c===v.color?'selected':''}>${c}</option>`).join("")}
+        <select onchange="setVariantColorSelect(${idx}, this.value)">
+          ${Object.keys(COLOR_HEX).map(c=>`<option value="${c}" ${!isCustom && c===v.color?'selected':''}>${c}</option>`).join("")}
+          <option value="__custom__" ${isCustom?'selected':''}>Outra (digitar nome)</option>
         </select>
         <button type="button" class="link-btn remove-btn" onclick="removeVariantRow(${idx})">remover</button>
       </div>
+      ${isCustom ? `<input type="text" placeholder="Digite o nome da cor" value="${v.color||''}" oninput="setVariantColor(${idx}, this.value)" style="width:100%;">` : ''}
       <div class="variant-row-bottom">
         <div class="variant-thumb">${v.image?`<img src="${v.image}">`:''}</div>
         <label class="file-btn" style="width:auto;">📷 ${v.image?'trocar foto':'adicionar foto'}<input type="file" accept="image/*" style="display:none;" onchange="setVariantImage(${idx}, this.files[0])"></label>
       </div>
     </div>
-  `).join("");
+  `;}).join("");
 }
 function addVariantRow(){
   const used = editingVariants.map(v=>v.color);
   const next = Object.keys(COLOR_HEX).find(c=>!used.includes(c)) || Object.keys(COLOR_HEX)[0];
   editingVariants.push({color:next, image:null});
+  renderVariantsBox();
+}
+function setVariantColorSelect(idx, value){
+  editingVariants[idx].color = (value === '__custom__') ? '' : value;
   renderVariantsBox();
 }
 function setVariantColor(idx, color){
