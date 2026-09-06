@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Admin • Maninha Crochê</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="icons/favicon.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="theme-color" content="#e85d8a">
 <style>
   :root{
     --pink:#e85d8a; --pink-dark:#c9436c; --bg:#fff6f9; --card:#ffffff;
@@ -74,9 +78,7 @@
 <h1>Painel Admin — Maninha Crochê</h1>
 <p class="sub">Visão geral de visitantes e produtos vistos</p>
 
-<div id="configWarning" class="config-warning" style="display:none;">
-  ⚠️ Preencha o arquivo <strong>firebase-config.js</strong> com as chaves do seu projeto Firebase para o painel funcionar.
-</div>
+<div id="configWarning" class="config-warning" style="display:none;"></div>
 
 <div class="top-actions">
   <button class="btn" id="enableNotifBtn">🔔 Ativar notificações</button>
@@ -111,6 +113,15 @@
   <p class="empty" id="productsEmpty" style="display:none;">Nenhuma visualização registrada ainda neste período.</p>
 </section>
 
+<script>
+  window.addEventListener('error', function(e){
+    var box = document.getElementById('configWarning');
+    if(box){
+      box.innerHTML = '❌ Erro no navegador/app: <code>' + (e.message||'desconhecido') + '</code><br><small>Se você está usando um APK gerado a partir do HTML, abra este link no navegador Chrome normal em vez do app — muitos desses conversores não suportam módulos JavaScript nem notificações.</small>';
+      box.style.display = 'block';
+    }
+  });
+</script>
 <script src="firebase-config.js"></script>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
@@ -119,14 +130,29 @@
     getCountFromServer, getDocs, onSnapshot, Timestamp
   } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
-  const cfg = window.MC_FIREBASE_CONFIG || {};
-  if(!cfg.apiKey || cfg.apiKey === "COLE_AQUI"){
-    document.getElementById('configWarning').style.display = 'block';
+  const warningBox = document.getElementById('configWarning');
+  function showWarning(html){
+    warningBox.innerHTML = html;
+    warningBox.style.display = 'block';
   }
 
-  const app = initializeApp(cfg);
-  const db = getFirestore(app);
-  const col = collection(db, 'maninhaCroche');
+  const cfg = window.MC_FIREBASE_CONFIG || {};
+  const gotKey = cfg.apiKey ? (cfg.apiKey.slice(0,6) + '...' + cfg.apiKey.slice(-4)) : '(nenhuma)';
+
+  if(!window.MC_FIREBASE_CONFIG){
+    showWarning('⚠️ O arquivo <strong>firebase-config.js</strong> não carregou. Confirme que ele está na mesma pasta do admin.html no GitHub, com esse nome exato.');
+  } else if(!cfg.apiKey || cfg.apiKey === "COLE_AQUI"){
+    showWarning('⚠️ O firebase-config.js carregou, mas ainda está com valor de exemplo. Chave lida agora: <code>'+gotKey+'</code>');
+  }
+
+  let app, db, col;
+  try{
+    app = initializeApp(cfg);
+    db = getFirestore(app);
+    col = collection(db, 'maninhaCroche');
+  }catch(err){
+    showWarning('❌ Erro ao iniciar o Firebase: <code>'+err.message+'</code><br>Chave lida: <code>'+gotKey+'</code> / projectId: <code>'+(cfg.projectId||'—')+'</code>');
+  }
 
   function since(daysAgo){
     return Timestamp.fromDate(new Date(Date.now() - daysAgo*24*60*60*1000));
@@ -141,7 +167,7 @@
       const q = query(col, where('type','==','presence'), where('lastSeen','>=', sinceMs(30000)));
       const snap = await getCountFromServer(q);
       document.getElementById('onlineCount').textContent = snap.data().count;
-    }catch(e){ console.error(e); }
+    }catch(e){ showWarning('❌ Erro ao ler "online agora": <code>'+e.message+'</code>'); }
   }
 
   /* ---------- Contadores de período ---------- */
@@ -156,7 +182,7 @@
       document.getElementById('stat7d').textContent = await countVisits(7);
       document.getElementById('stat30d').textContent = await countVisits(30);
       document.getElementById('stat365d').textContent = await countVisits(365);
-    }catch(e){ console.error(e); }
+    }catch(e){ showWarning('❌ Erro ao contar visitas: <code>'+e.message+'</code>'); }
   }
 
   /* ---------- Produtos mais vistos ---------- */
@@ -181,7 +207,7 @@
         empty.style.display = 'none';
         body.innerHTML = rows.map(([name,count])=>`<tr><td>${name}</td><td style="text-align:right;">${count}</td></tr>`).join('');
       }
-    }catch(e){ console.error(e); }
+    }catch(e){ showWarning('❌ Erro ao ler produtos vistos: <code>'+e.message+'</code>'); }
   }
 
   document.querySelectorAll('.period-tabs button').forEach(btn=>{
@@ -196,16 +222,20 @@
   /* ---------- Notificação de novo visitante em tempo real ---------- */
   let notifReady = false;
   document.getElementById('enableNotifBtn').addEventListener('click', async ()=>{
-    if(!('Notification' in window)){
-      alert('Seu navegador não suporta notificações.');
-      return;
-    }
-    const perm = await Notification.requestPermission();
-    if(perm === 'granted'){
-      notifReady = true;
-      document.getElementById('enableNotifBtn').textContent = '🔔 Notificações ativadas';
-    }else{
-      alert('Notificações não permitidas. Você ainda verá o aviso na tela.');
+    try{
+      if(!('Notification' in window)){
+        showWarning('⚠️ Este navegador/app não suporta notificações. Abra o link no Chrome normal (não no APK) e tente de novo.');
+        return;
+      }
+      const perm = await Notification.requestPermission();
+      if(perm === 'granted'){
+        notifReady = true;
+        document.getElementById('enableNotifBtn').textContent = '🔔 Notificações ativadas';
+      }else{
+        showWarning('⚠️ Notificações não permitidas pelo navegador. Você ainda verá o aviso na tela quando alguém entrar.');
+      }
+    }catch(e){
+      showWarning('❌ Erro ao ativar notificações: <code>'+e.message+'</code>');
     }
   });
 
@@ -253,6 +283,10 @@
   updateProducts();
   setInterval(updateOnline, 10000);
   setInterval(updateStats, 60000);
+
+  if('serviceWorker' in navigator){
+    navigator.serviceWorker.register('sw.js').catch(()=>{});
+  }
 </script>
 </body>
 </html>
