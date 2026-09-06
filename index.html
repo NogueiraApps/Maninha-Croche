@@ -871,7 +871,7 @@ function renderGrid(){
     const activeColor = hasColors ? (selectedColors[p.id] || p.colorVariants[0].color) : null;
     const displayImage = hasColors ? getVariantImage(p, activeColor) : p.image;
     return `
-    <div class="card">
+    <div class="card" data-product-id="${p.id}" data-product-name="${(p.name||'').replace(/"/g,'&quot;')}">
       <div class="card-media" style="background:${p.color}">
         ${p.badge==='novidade' ? '<span class="badge">Novidade</span>' : ''}
         ${p.badge==='promo' ? '<span class="badge promo">Promoção</span>' : ''}
@@ -1367,6 +1367,69 @@ document.getElementById('saveProductBtn').onclick = ()=>{
 
 /* ================= INIT ================= */
 loadData();
+</script>
+<script src="firebase-config.js"></script>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+  import {
+    getFirestore, collection, addDoc, doc, setDoc, serverTimestamp
+  } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+
+  const app = initializeApp(window.MC_FIREBASE_CONFIG);
+  const db = getFirestore(app);
+
+  // Um ID por aba/visita (não identifica a pessoa, só a sessão)
+  let sessionId = sessionStorage.getItem('mc_session');
+  if(!sessionId){
+    sessionId = (crypto.randomUUID ? crypto.randomUUID() : Date.now()+'-'+Math.random().toString(36).slice(2));
+    sessionStorage.setItem('mc_session', sessionId);
+  }
+
+  // 1) Registra a visita (uma vez por aba aberta)
+  addDoc(collection(db,'maninhaCroche'), {
+    type: 'visit',
+    sessionId,
+    page: location.pathname,
+    timestamp: serverTimestamp()
+  }).catch(()=>{});
+
+  // 2) "Online agora" — atualiza um sinal de presença a cada 15s
+  const presenceRef = doc(db, 'maninhaCroche', 'presence_'+sessionId);
+  function heartbeat(){
+    setDoc(presenceRef, { type:'presence', sessionId, lastSeen: serverTimestamp() }).catch(()=>{});
+  }
+  heartbeat();
+  setInterval(heartbeat, 15000);
+
+  // 3) Quais produtos a pessoa realmente viu na tela (aparece 1x por produto por visita)
+  const seenProducts = new Set();
+  const observer = new IntersectionObserver((entries)=>{
+    entries.forEach(entry=>{
+      if(entry.isIntersecting){
+        const id = entry.target.dataset.productId;
+        const name = entry.target.dataset.productName;
+        if(id && !seenProducts.has(id)){
+          seenProducts.add(id);
+          addDoc(collection(db,'maninhaCroche'), {
+            type: 'product_view',
+            productId: id,
+            productName: name,
+            sessionId,
+            timestamp: serverTimestamp()
+          }).catch(()=>{});
+        }
+      }
+    });
+  }, { threshold: 0.5 });
+
+  function observeProductCards(){
+    document.querySelectorAll('.card[data-product-id]').forEach(card=>observer.observe(card));
+  }
+  const gridEl = document.getElementById('productGrid');
+  if(gridEl){
+    new MutationObserver(observeProductCards).observe(gridEl, { childList:true });
+    observeProductCards();
+  }
 </script>
 </body>
 </html>
