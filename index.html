@@ -203,17 +203,19 @@
   }
   .cart-color-tag .dot{width:12px; height:12px; border-radius:50%; display:inline-block; box-shadow:0 0 0 1px var(--line);}
   .variant-row{
-    display:flex; align-items:center; gap:10px; padding:10px; margin-bottom:8px;
+    display:flex; flex-direction:column; gap:8px; padding:10px; margin-bottom:8px;
     border:1px solid var(--line); border-radius:12px; background:#fff;
   }
-  .variant-row select{flex-shrink:0; width:110px;}
+  .variant-row-top{display:flex; align-items:center; gap:10px;}
+  .variant-row-top select{flex:1; min-width:0;}
+  .variant-row-top .remove-btn{flex-shrink:0;}
+  .variant-row-bottom{display:flex; align-items:center; gap:10px;}
   .variant-thumb{
     width:44px; height:44px; border-radius:8px; object-fit:cover; background:var(--rose);
     flex-shrink:0; display:flex; align-items:center; justify-content:center; overflow:hidden;
   }
   .variant-thumb img{width:100%; height:100%; object-fit:cover;}
-  .variant-row .file-btn{font-size:12px; padding:6px 10px; flex-shrink:0;}
-  .variant-row .remove-btn{margin-left:auto;}
+  .variant-row .file-btn{font-size:12px; padding:6px 10px; flex:1; text-align:center;}
   .price{font-size:20px; color:var(--neon); font-family:var(--font-heading); font-weight:600;}
   .price-old{font-size:13px; color:var(--mauve); text-decoration:line-through;}
   .add-btn{
@@ -1096,12 +1098,16 @@ function renderVariantsBox(){
   }
   box.innerHTML = editingVariants.map((v,idx)=>`
     <div class="variant-row">
-      <select onchange="setVariantColor(${idx}, this.value)">
-        ${Object.keys(COLOR_HEX).map(c=>`<option value="${c}" ${c===v.color?'selected':''}>${c}</option>`).join("")}
-      </select>
-      <div class="variant-thumb">${v.image?`<img src="${v.image}">`:''}</div>
-      <label class="file-btn" style="width:auto;">📷 foto<input type="file" accept="image/*" style="display:none;" onchange="setVariantImage(${idx}, this.files[0])"></label>
-      <button type="button" class="remove-btn" onclick="removeVariantRow(${idx})">remover</button>
+      <div class="variant-row-top">
+        <select onchange="setVariantColor(${idx}, this.value)">
+          ${Object.keys(COLOR_HEX).map(c=>`<option value="${c}" ${c===v.color?'selected':''}>${c}</option>`).join("")}
+        </select>
+        <button type="button" class="link-btn remove-btn" onclick="removeVariantRow(${idx})">remover</button>
+      </div>
+      <div class="variant-row-bottom">
+        <div class="variant-thumb">${v.image?`<img src="${v.image}">`:''}</div>
+        <label class="file-btn" style="width:auto;">📷 ${v.image?'trocar foto':'adicionar foto'}<input type="file" accept="image/*" style="display:none;" onchange="setVariantImage(${idx}, this.files[0])"></label>
+      </div>
     </div>
   `).join("");
 }
