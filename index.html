@@ -636,6 +636,7 @@ const firebaseConfig = {
 };
 let db = null;
 let siteCol = null;
+let productsCol = null;
 let firebaseOk = false;
 try{
   if(typeof firebase === 'undefined') throw new Error('SDK do Firebase não carregou (sem internet ou bloqueado)');
@@ -643,44 +644,125 @@ try{
   db = firebase.firestore();
   // Coleção própria para não misturar com outros apps do mesmo projeto Firebase
   siteCol = db.collection('maninhaCroche');
+  // Cada produto vira o SEU PRÓPRIO documento (em vez de todos os produtos
+  // espremidos dentro de um único documento). Isso evita estourar o limite
+  // de 1MB por documento do Firestore quando produtos têm fotos e variações
+  // de cor com fotos — era essa a causa das edições "sumirem".
+  productsCol = db.collection('maninhaCroche_products');
   firebaseOk = true;
 }catch(e){
   console.error('Falha ao iniciar Firebase:', e);
 }
 
+/* Backup local: guarda uma cópia dos dados no próprio navegador.
+   Isso evita que produtos "sumam" quando a leitura do Firebase falhar
+   (sem internet, domínio bloqueado, etc.) — nesses casos usamos o
+   último backup salvo em vez de voltar para os produtos de exemplo. */
+const LS_PRODUCTS_KEY = 'maninhaCroche_products_backup';
+const LS_SETTINGS_KEY = 'maninhaCroche_settings_backup';
+function cacheProductsLocally(list){
+  try{ localStorage.setItem(LS_PRODUCTS_KEY, JSON.stringify(list)); }catch(e){ console.error('Falha ao salvar backup local de produtos', e); }
+}
+function cacheSettingsLocally(obj){
+  try{ localStorage.setItem(LS_SETTINGS_KEY, JSON.stringify(obj)); }catch(e){ console.error('Falha ao salvar backup local de configurações', e); }
+}
+function getLocalProductsBackup(){
+  try{ const raw = localStorage.getItem(LS_PRODUCTS_KEY); return raw ? JSON.parse(raw) : null; }catch(e){ return null; }
+}
+function getLocalSettingsBackup(){
+  try{ const raw = localStorage.getItem(LS_SETTINGS_KEY); return raw ? JSON.parse(raw) : null; }catch(e){ return null; }
+}
+
 async function loadData(){
   if(!firebaseOk){
-    products = DEFAULT_PRODUCTS;
-    settings = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
+    const localProducts = getLocalProductsBackup();
+    const localSettings = getLocalSettingsBackup();
+    products = localProducts || DEFAULT_PRODUCTS;
+    settings = localSettings ? {...JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), ...localSettings} : JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
     applySettings();
     renderHeroArt();
     renderAll();
-    showToast("Sem conexão com o banco de dados. Mostrando dados de exemplo.");
+    showToast(localProducts ? "Sem conexão com o banco de dados. Mostrando seu último backup salvo." : "Sem conexão com o banco de dados. Mostrando dados de exemplo.");
     return;
   }
   try{
-    const doc = await siteCol.doc('products').get();
-    products = doc.exists ? doc.data().list : DEFAULT_PRODUCTS;
-  }catch(e){ console.error(e); products = DEFAULT_PRODUCTS; }
+    const snap = await productsCol.get();
+    if(!snap.empty){
+      products = snap.docs.map(d=>d.data());
+      cacheProductsLocally(products);
+    }else{
+      // Subcoleção nova vazia: verifica se existem produtos no formato antigo
+      // (documento único 'products') e migra automaticamente pra não perder nada.
+      const legacyDoc = await siteCol.doc('products').get();
+      if(legacyDoc.exists && Array.isArray(legacyDoc.data().list) && legacyDoc.data().list.length){
+        products = legacyDoc.data().list;
+        cacheProductsLocally(products);
+        migrateLegacyProducts(products); // roda em segundo plano
+      }else{
+        products = getLocalProductsBackup() || DEFAULT_PRODUCTS;
+      }
+    }
+  }catch(e){
+    console.error(e);
+    const localProducts = getLocalProductsBackup();
+    products = localProducts || DEFAULT_PRODUCTS;
+    showToast(localProducts ? "Não deu pra acessar o banco agora. Mostrando seu último backup salvo." : "Não deu pra acessar o banco agora. Mostrando dados de exemplo.");
+  }
   try{
     const doc = await siteCol.doc('settings').get();
     const base = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
-    const saved = doc.exists ? doc.data() : {};
-    settings = {...base, ...saved, colors:{...base.colors, ...(saved.colors||{})}, hero:{...base.hero, ...(saved.hero||{})}, about:{...base.about, ...(saved.about||{})}};
-  }catch(e){ console.error(e); settings = JSON.parse(JSON.stringify(DEFAULT_SETTINGS)); }
+    if(doc.exists){
+      const saved = doc.data();
+      settings = {...base, ...saved, colors:{...base.colors, ...(saved.colors||{})}, hero:{...base.hero, ...(saved.hero||{})}, about:{...base.about, ...(saved.about||{})}};
+      cacheSettingsLocally(settings);
+    }else{
+      const localSettings = getLocalSettingsBackup();
+      settings = localSettings ? {...base, ...localSettings} : base;
+    }
+  }catch(e){
+    console.error(e);
+    const localSettings = getLocalSettingsBackup();
+    settings = localSettings ? {...JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), ...localSettings} : JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
+  }
   applySettings();
   renderHeroArt();
   renderAll();
 }
-async function saveProducts(){
-  if(!firebaseOk){ showToast("Sem conexão com o banco de dados. Não foi possível salvar."); return; }
-  try{ await siteCol.doc('products').set({ list: products }); }
-  catch(e){ console.error(e); showToast("Não deu pra salvar. Verifique a internet."); }
+async function migrateLegacyProducts(list){
+  if(!firebaseOk) return;
+  try{
+    const batch = db.batch();
+    list.forEach(p=>{ batch.set(productsCol.doc(p.id), p); });
+    await batch.commit();
+  }catch(e){ console.error('Falha ao migrar produtos antigos:', e); }
+}
+// Salva/atualiza UM produto no seu próprio documento (evita estourar o limite
+// de 1MB do Firestore quando há fotos de variações de cor).
+async function saveOneProduct(product){
+  cacheProductsLocally(products); // backup local sempre, pra nunca sumir da tela atual
+  if(!firebaseOk){ showToast("Salvo neste dispositivo. Sem conexão com o banco online para sincronizar."); return; }
+  try{
+    await productsCol.doc(product.id).set(product);
+  }catch(e){
+    console.error(e);
+    if(e && e.code === 'invalid-argument'){
+      showToast("Foto(s) grande(s) demais pra salvar. Tente usar fotos menores.");
+    }else{
+      showToast("Salvo neste dispositivo, mas não sincronizou com o banco online. Verifique a internet.");
+    }
+  }
+}
+async function deleteOneProductRemote(id){
+  cacheProductsLocally(products);
+  if(!firebaseOk) return;
+  try{ await productsCol.doc(id).delete(); }
+  catch(e){ console.error(e); showToast("Excluído neste dispositivo, mas não sincronizou com o banco online."); }
 }
 async function saveSettings(){
-  if(!firebaseOk){ showToast("Sem conexão com o banco de dados. Não foi possível salvar."); return; }
+  cacheSettingsLocally(settings);
+  if(!firebaseOk){ showToast("Salvo neste dispositivo. Sem conexão com o banco online para sincronizar."); return; }
   try{ await siteCol.doc('settings').set(settings); }
-  catch(e){ console.error(e); showToast("Não deu pra salvar. Verifique a internet."); }
+  catch(e){ console.error(e); showToast("Salvo neste dispositivo, mas não sincronizou com o banco online. Verifique a internet."); }
 }
 
 /* ================= HELPERS ================= */
@@ -1238,7 +1320,7 @@ document.getElementById('removeImgBtn').onclick = ()=>{
 function quickDelete(id){
   if(!confirm("Excluir este produto?")) return;
   products = products.filter(p=>p.id!==id);
-  saveProducts();
+  deleteOneProductRemote(id);
   renderAdminList();
   renderTabs();
   renderGrid();
@@ -1263,13 +1345,16 @@ document.getElementById('saveProductBtn').onclick = ()=>{
   const colorVariants = editingVariants.filter(v=>v.color);
   if(!name || isNaN(price)){ showToast("Preencha nome e preço"); return; }
 
+  let savedProduct;
   if(editingId){
     const p = products.find(x=>x.id===editingId);
     Object.assign(p, {name,desc,price,oldPrice,category,color,badge,colorVariants,image:editingImage});
+    savedProduct = p;
   }else{
-    products.push({id:"p"+Date.now(), name,desc,price,oldPrice,category,color,badge,colorVariants,image:editingImage});
+    savedProduct = {id:"p"+Date.now(), name,desc,price,oldPrice,category,color,badge,colorVariants,image:editingImage};
+    products.push(savedProduct);
   }
-  saveProducts();
+  saveOneProduct(savedProduct);
   document.getElementById('adminEditView').style.display='none';
   document.getElementById('adminPanelView').style.display='block';
   switchAdminTab('produtos');
