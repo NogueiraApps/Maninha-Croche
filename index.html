@@ -424,7 +424,6 @@
   <div class="modal">
     <h3>Finalizar pedido</h3>
     <div class="field"><label>Seu nome</label><input id="ckName" placeholder="Nome completo"></div>
-    <div class="field"><label>Telefone / WhatsApp</label><input id="ckPhone" placeholder="(88) 9 9999-9999"></div>
     <div class="field"><label>Endereço para entrega</label><input id="ckAddress" placeholder="Rua, número, bairro"></div>
     <div class="field"><label>Cidade</label><input id="ckCity" placeholder="Ex: Porteiras" oninput="updateFreight()"></div>
     <div class="field">
@@ -435,7 +434,7 @@
       </div>
     </div>
     <p class="freight-note" id="freightNote">Digite a cidade para calcular a entrega.</p>
-    <div class="sub-row"><span>Subtotal</span><span id="ckSub">R$ 0,00</span></div>
+    <div class="sub-row" id="ckSubRow"><span>Subtotal</span><span id="ckSub">R$ 0,00</span></div>
     <div class="sub-row"><span>Entrega</span><span id="ckFreight">—</span></div>
     <div class="total-row"><span>Total</span><span id="ckTotal">R$ 0,00</span></div>
     <div class="modal-actions">
@@ -994,6 +993,7 @@ function openCheckout(){
   if(cartItemsDetailed().length===0){ showToast("Seu carrinho está vazio!"); return; }
   closeDrawerFn();
   document.getElementById('ckSub').textContent = brl(cartSubtotal());
+  document.getElementById('ckSubRow').style.display = cartItemsDetailed().length > 1 ? 'flex' : 'none';
   updateFreight();
   checkoutOverlay.classList.add('show');
 }
@@ -1033,10 +1033,9 @@ function updateFreight(){
 
 document.getElementById('sendOrderBtn').onclick = ()=>{
   const name = document.getElementById('ckName').value.trim();
-  const phone = document.getElementById('ckPhone').value.trim();
   const address = document.getElementById('ckAddress').value.trim();
   const city = document.getElementById('ckCity').value.trim();
-  if(!name || !phone || !address || !city){ showToast("Preencha todos os campos 🌸"); return; }
+  if(!name || !address || !city){ showToast("Preencha todos os campos 🌸"); return; }
   if(!selectedPayment){ showToast("Escolha a forma de pagamento"); return; }
 
   const sub = cartSubtotal();
@@ -1046,11 +1045,14 @@ document.getElementById('sendOrderBtn').onclick = ()=>{
 
   let msg = `Olá! Gostaria de fazer um pedido na Maninha Crochê 🌸\n\n`;
   msg += items.map(i=>`• ${i.qty}x ${i.name}${i.pickedColor ? ` (cor: ${i.pickedColor})` : ''} — ${brl(i.price*i.qty)}`).join("\n");
-  msg += `\n\nSubtotal: ${brl(sub)}`;
+  msg += `\n`;
+  if(items.length > 1){
+    msg += `\nSubtotal: ${brl(sub)}`;
+  }
   msg += `\nEntrega: ${freight===0 ? "Grátis (Porteiras)" : brl(freight)}`;
   msg += `\nTotal: ${brl(total)}`;
   msg += `\n\nForma de pagamento: ${selectedPayment==='pix' ? 'Pix' : 'Cartão'}`;
-  msg += `\n\nNome: ${name}\nTelefone: ${phone}\nEndereço: ${address}, ${city}`;
+  msg += `\n\nNome: ${name}\nEndereço: ${address}, ${city}`;
 
   const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`;
   window.open(url, '_blank');
