@@ -459,6 +459,7 @@
       <h3>Painel da Maninha</h3>
       <div class="admin-tabs">
         <button class="admin-tab active" data-tab="produtos" onclick="switchAdminTab('produtos')">Produtos</button>
+        <button class="admin-tab" data-tab="categorias" onclick="switchAdminTab('categorias')">Categorias</button>
         <button class="admin-tab" data-tab="aparencia" onclick="switchAdminTab('aparencia')">Aparência</button>
         <button class="admin-tab" data-tab="textos" onclick="switchAdminTab('textos')">Textos</button>
         <button class="admin-tab" data-tab="senha" onclick="switchAdminTab('senha')">Senha</button>
@@ -467,6 +468,17 @@
       <div id="adminTabProdutos">
         <div class="admin-list" id="adminList"></div>
         <button class="btn-ghost" style="width:100%; text-align:center; margin-bottom:12px;" id="newProductBtn">+ novo produto</button>
+      </div>
+
+      <div id="adminTabCategorias" style="display:none;">
+        <div class="admin-list" id="adminCategoryList"></div>
+        <div class="field">
+          <label>Nova categoria</label>
+          <div style="display:flex; gap:8px;">
+            <input id="newCategoryInput" placeholder="Ex: Natal" style="flex:1;">
+            <button class="btn-primary" id="addCategoryBtn" style="padding:0 20px;">+ adicionar</button>
+          </div>
+        </div>
       </div>
 
       <div id="adminTabAparencia" style="display:none;">
@@ -528,12 +540,7 @@
       <div class="field"><label>Preço (R$)</label><input id="editPrice" type="number" step="0.01"></div>
       <div class="field"><label>Preço antigo (opcional, para promoção)</label><input id="editOldPrice" type="number" step="0.01"></div>
       <div class="field"><label>Categoria</label>
-        <select id="editCategory">
-          <option value="Amigurumis">Amigurumis</option>
-          <option value="Casa">Casa</option>
-          <option value="Bebê">Bebê</option>
-          <option value="Acessórios">Acessórios</option>
-        </select>
+        <select id="editCategory"></select>
       </div>
       <div class="field"><label>Cor do cartão (usada se não houver foto)</label>
         <select id="editColor">
@@ -596,6 +603,7 @@ const DEFAULT_PRODUCTS = [
 const DEFAULT_SETTINGS = {
   ticker: "✨ Novidade: Coelhinha Amigurumi chegou! · Promoção: Bolsa de Praia com desconto · Entrega grátis em Porteiras 🌸",
   adminPass: "croche123",
+  categories: ["Amigurumis", "Casa", "Bebê", "Acessórios"],
   colors: {neon:"#FF2E93", cream:"#FFF7F4", plum:"#3A1F2B", flower:"#FF2E93"},
   fontStyle: "elegante",
   hero: {
@@ -1090,9 +1098,11 @@ document.getElementById('adminLoginBtn').onclick = ()=>{
 function switchAdminTab(tab){
   document.querySelectorAll('.admin-tab').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
   document.getElementById('adminTabProdutos').style.display = tab==='produtos' ? 'block':'none';
+  document.getElementById('adminTabCategorias').style.display = tab==='categorias' ? 'block':'none';
   document.getElementById('adminTabAparencia').style.display = tab==='aparencia' ? 'block':'none';
   document.getElementById('adminTabTextos').style.display = tab==='textos' ? 'block':'none';
   document.getElementById('adminTabSenha').style.display = tab==='senha' ? 'block':'none';
+  if(tab==='categorias') renderCategoriesAdmin();
   if(tab==='produtos') renderAdminList();
   if(tab==='aparencia') fillAppearanceForm();
   if(tab==='textos') fillTextsForm();
@@ -1178,6 +1188,65 @@ document.getElementById('savePassBtn').onclick = ()=>{
   showToast("Senha atualizada 💗");
 };
 
+function renderCategoriesAdmin(){
+  const list = document.getElementById('adminCategoryList');
+  const cats = settings.categories || [];
+  list.innerHTML = cats.map((c,idx)=>{
+    const count = products.filter(p=>p.category===c).length;
+    return `
+    <div class="admin-item">
+      <div class="ai-info"><b>${c}</b>${count>0 ? `${count} produto${count>1?'s':''}` : 'nenhum produto'}</div>
+      <div class="admin-actions">
+        <button class="icon-btn danger" onclick="removeCategory(${idx})">✕</button>
+      </div>
+    </div>
+  `;}).join("") || `<p style="font-size:13px;color:var(--mauve);">Nenhuma categoria cadastrada.</p>`;
+}
+function addCategory(){
+  const input = document.getElementById('newCategoryInput');
+  const name = input.value.trim();
+  if(!name){ showToast("Digite um nome para a categoria"); return; }
+  settings.categories = settings.categories || [];
+  if(settings.categories.some(c=>c.toLowerCase()===name.toLowerCase())){
+    showToast("Essa categoria já existe");
+    return;
+  }
+  settings.categories.push(name);
+  saveSettings();
+  input.value = "";
+  renderCategoriesAdmin();
+  populateCategorySelect();
+  showToast("Categoria adicionada 💗");
+}
+function removeCategory(idx){
+  const cats = settings.categories || [];
+  const name = cats[idx];
+  if(!name) return;
+  const inUse = products.filter(p=>p.category===name).length;
+  if(inUse>0){
+    if(!confirm(`${inUse} produto(s) usam a categoria "${name}". Remover mesmo assim? Eles ficarão sem categoria.`)) return;
+  }else{
+    if(!confirm(`Remover a categoria "${name}"?`)) return;
+  }
+  settings.categories.splice(idx,1);
+  saveSettings();
+  renderCategoriesAdmin();
+  populateCategorySelect();
+  renderTabs();
+  renderGrid();
+  showToast("Categoria removida");
+}
+function populateCategorySelect(){
+  const sel = document.getElementById('editCategory');
+  const cats = settings.categories && settings.categories.length ? settings.categories : ["Sem categoria"];
+  const current = sel.value;
+  sel.innerHTML = cats.map(c=>`<option value="${c}">${c}</option>`).join("");
+  if(cats.includes(current)) sel.value = current;
+}
+document.getElementById('addCategoryBtn').onclick = addCategory;
+document.getElementById('newCategoryInput').addEventListener('keydown', (e)=>{
+  if(e.key === 'Enter'){ e.preventDefault(); addCategory(); }
+});
 function renderAdminList(){
   const list = document.getElementById('adminList');
   list.innerHTML = products.map(p=>`
@@ -1267,7 +1336,8 @@ document.getElementById('newProductBtn').onclick = ()=>{
   document.getElementById('editDesc').value = "";
   document.getElementById('editPrice').value = "";
   document.getElementById('editOldPrice').value = "";
-  document.getElementById('editCategory').value = "Amigurumis";
+  populateCategorySelect();
+  document.getElementById('editCategory').value = (settings.categories && settings.categories[0]) || "";
   document.getElementById('editColor').value = "#F7CFE0";
   document.getElementById('editBadge').value = "";
   editingVariants = [];
@@ -1287,6 +1357,7 @@ function editProduct(id){
   document.getElementById('editDesc').value = p.desc;
   document.getElementById('editPrice').value = p.price;
   document.getElementById('editOldPrice').value = p.oldPrice || "";
+  populateCategorySelect();
   document.getElementById('editCategory').value = p.category;
   document.getElementById('editColor').value = p.color;
   document.getElementById('editBadge').value = p.badge || "";
